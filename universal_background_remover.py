@@ -18,6 +18,9 @@ from typing import List, Tuple, Optional
 
 
 def setup_logging():
+    """
+    Setup logging configuration for the script.
+    """
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -30,10 +33,13 @@ setup_logging()
 
 class BackgroundRemover:
     def __init__(self, obj_detector_name: str, seg_model_name: str, cache_dir="cache"):
+        """
+        Initialize the BackgroundRemover class with object detection and segmentation models.
+        """
         self.cache = {}
         self.cache_dir = cache_dir
 
-        # Object Detection Model
+        # Initialize the object detection model
         self.processor = AutoImageProcessor.from_pretrained(
             obj_detector_name, cache_dir=f"{cache_dir}/processor"
         )
@@ -41,17 +47,21 @@ class BackgroundRemover:
             obj_detector_name, cache_dir=f"{cache_dir}/detector_model"
         )
 
-        # Segmentation Model
+        # Initialize the segmentation model
         self.seg_model = AutoModelForImageSegmentation.from_pretrained(
             seg_model_name, trust_remote_code=True
         )
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.seg_model.to(self.device)
 
+        # Create cache directory if it doesn't exist
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
 
     def compute_image_hash(self, image_path: str) -> str:
+        """
+        Compute MD5 hash of an image file.
+        """
         try:
             with open(image_path, "rb") as f:
                 return hashlib.md5(f.read()).hexdigest()
@@ -60,6 +70,9 @@ class BackgroundRemover:
             return ""
 
     def detect_objects_with_yolo(self, image_path: str) -> Optional[List[dict]]:
+        """
+        Detect objects in an image using YOLO object detection model.
+        """
         try:
             logging.debug(f"Opening image for processing: {image_path}")
             image = Image.open(image_path).convert("RGB")
@@ -70,6 +83,7 @@ class BackgroundRemover:
             thresholds = [0.4, 0.5, 0.6]
             all_detected_objects = []
 
+            # Process object detection results at different thresholds
             for threshold in thresholds:
                 results = self.processor.post_process_object_detection(
                     outputs,
@@ -85,6 +99,7 @@ class BackgroundRemover:
                         {"label": label, "box": box, "score": score}
                     )
 
+            # Apply Non-Maximum Suppression (NMS) to filter overlapping boxes
             boxes = torch.tensor([obj["box"] for obj in all_detected_objects])
             scores = torch.tensor([obj["score"] for obj in all_detected_objects])
             indices = nms(boxes, scores, iou_threshold=0.5)
@@ -101,6 +116,9 @@ class BackgroundRemover:
             return None
 
     def preprocess_image(self, im: np.ndarray, model_input_size: list) -> torch.Tensor:
+        """
+        Preprocess the image for segmentation model input.
+        """
         if len(im.shape) < 3:
             im = im[:, :, np.newaxis]
         im_tensor = torch.tensor(im, dtype=torch.float32).permute(2, 0, 1)
@@ -112,6 +130,9 @@ class BackgroundRemover:
         return image
 
     def postprocess_image(self, result: torch.Tensor, im_size: list) -> np.ndarray:
+        """
+        Postprocess the segmentation model output to create a mask.
+        """
         result = torch.squeeze(F.interpolate(result, size=im_size, mode="bilinear"), 0)
         ma = torch.max(result)
         mi = torch.min(result)
@@ -123,7 +144,9 @@ class BackgroundRemover:
     def apply_background(
         self, image: np.ndarray, mask: np.ndarray, bg_color: Tuple[int, int, int]
     ) -> Image.Image:
-        # Apply the mask to the image
+        """
+        Apply the background color to the image using the mask.
+        """
         pil_im = Image.fromarray(mask)
         no_bg_image = Image.new("RGBA", pil_im.size, (*bg_color, 255))
         orig_image = Image.open(image)
@@ -131,6 +154,9 @@ class BackgroundRemover:
         return no_bg_image
 
     def save_debug_images(self, initial_mask, final_mask, mask_visual, orig_image_path):
+        """
+        Save debug images for initial mask, final mask, and mask visualization.
+        """
         try:
             initial_mask_path = os.path.join(
                 self.cache_dir, f"initial_mask_{os.path.basename(orig_image_path)}"
@@ -163,6 +189,9 @@ class BackgroundRemover:
     def process_image(
         self, image_path: str, bg_color: Tuple[int, int, int] = (0, 0, 0)
     ) -> Optional[str]:
+        """
+        Process an image to remove its background.
+        """
         try:
             image_hash = self.compute_image_hash(image_path)
             if image_hash in self.cache:
@@ -233,6 +262,9 @@ class BackgroundRemover:
     def process_images_in_parallel(
         self, image_paths: List[str], bg_color: Tuple[int, int, int] = (0, 0, 0)
     ) -> List[Optional[str]]:
+        """
+        Process multiple images in parallel to remove their backgrounds.
+        """
         output_paths = []
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
@@ -250,10 +282,11 @@ class BackgroundRemover:
 
 
 if __name__ == "__main__":
+    # Default model names for object detection and segmentation
     obj_detector_name = "hustvl/yolos-base"
     seg_model_name = "briaai/RMBG-1.4"
     remover = BackgroundRemover(obj_detector_name, seg_model_name)
 
+    # List of image paths to process
     image_paths = ["Original_pic.jpeg"]
     remover.process_images_in_parallel(image_paths)
-
