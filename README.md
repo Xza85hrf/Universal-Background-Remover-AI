@@ -17,7 +17,7 @@ Universal Background Remover is a Python application that allows users to remove
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/universal-background-remover.git
+   git clone https://github.com/Xza85hrf/universal-background-remover.git
    cd universal-background-remover
 
 2. Install the required dependencies:
